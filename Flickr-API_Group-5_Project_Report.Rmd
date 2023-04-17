@@ -1,0 +1,365 @@
+---
+title: "Flickr - Image Popularity Analysis"
+author: "Group 5: <br/> Vasanthi Kata <br/> Prasanna Kumar Yepuri <br/> Preetham Dhanasekar <br/> Mounika Kandru"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## **Business context** 
+People gravitate towards something popular for the simple fact that it’s popular. They don’t want to miss out. They don’t want to be left out. They want to be part of the in-group. It makes them feel safe.
+
+Viral photos have initiated trends that either increased sales or became a nightmare for many businesses. Before launching a marketing campaign if we run posting images through an intelligent popularity prediction that would be a great help cross validate marketing people's perspectives for a better marketing campaign.
+
+
+### Flickr API:
+Flickr is a popular photo-sharing site, where users share their captures with a larger community. This API offers users the flexibility to store and organize their images, share it with other users, receive appreciations and document their memories.
+
+Here, we are exploiting three main factors that are important for making an image popular. In particular, we investigate the impact of the image’s visual content, and arrive at a conclusion that the image uploaded by a user is popular or not.
+
+## **Problem description**
+
+Being popular in the era of virtual world is huge for the current social media generation. Most people wonder why a particular post garnered more praise than yours. Therefore we plan to understand - Which input factors make an image or a video popular apart from the content posted?
+
+The popularity of an image can be estimated by the image aesthetics, content /context of the image and/or no. of views.We plan to predict the popularity class of image by the number of views it acquires.
+
+## Data Source
+Below is the URL to find the images that are downloaded as part of data collection.
+[https://drive.google.com/drive/folders/1eN8Hf0JPbvvD90dgPSi7SCUFMK9vewbI?usp=share_link]
+
+## Data Summary
+### Data Extraction:
+Step 1: Our first step is to arrive at raw data and using PhotoSearcher we downloaded the images from the Flickr API. However, due to vast count of images across the world, we plan to extract the images just from USA , and in order to do that, we restricted the region by specifying the latitude and longitude of USA i.e., geographical bounding box search criteria using our custom self defined package. This step generated search results of about 105000 images.
+
+Step 2: The images that are to be obtained are displayed in the form of pages, and we further restricted the number of pages to 140 as search criteria. We further flitered by interestingness i.e., sort_types <- "relevance", "interestingness-asc", "interestingness-desc" .
+
+Step 3: While downloading the data, images are bound to have different sizes,shapes,pixels. Uniform data is better for analytics and hence we further restricted the size of image to be 500x500 while downloading the data
+
+Step 4: We are considering Views to be our target label. Other attributes such as favorites, comments are ignored because no appropriate data pointers are found i.e., almost all of the values are zero which may be because Flickr is no longer widely used. Hence,considered views to be our target label.
+
+Step 5: Now, we arrive at a data frame that comprises of image title,description and timeline attributes.Rest of the fields in dataframe are obsolete. 
+
+All above steps are coded in R (Find Reference Section); thus resulting in a csv file ; which in turn is being read into our initial dataframe.
+
+```{r}
+library(keras)
+library(tidyverse)
+library(kableExtra)
+relevance_df <- read.csv("./relevance_image_info.csv", header = TRUE)
+
+```
+
+
+## Data Exploration
+The dataframe obtained has 46 columns where the only relevant columns for analysis and model construction are id,secret,count_views and count_faves and count_comments
+
+```{r}
+geo_bbox <- c(-171.791110603, 18.91619, -66.96466, 71.3577635769)
+str(relevance_df)
+```
+
+Only "id", "secret", "count_views", "count_faves", "count_comments" columns are of interest for our goal.
+
+```{r}
+relevance_df <- relevance_df[,c("id", "secret", "count_views", "count_faves", "count_comments")]
+str(relevance_df)
+```
+## Data Discussion
+
+Even though we parsed through 1,05,000 records in our search criteria, we were limited by the duplicates and processing power. Therefore, we ended up with 4449 images data. 
+
+Using above details viz., id and secret ; we downloaded images into our local system. Now, We created a master image dataframe for unique data points, since initial dataset has duplicacies of images.
+
+```{r}
+combined_df <- read.csv("./master_image_info.csv", header = TRUE)
+str(combined_df)
+summary(combined_df$count_views)
+options(scipen=999) # remove scientific notation
+```
+75% of the images have views below 1000 and can be understood by 3rd quartile range which is 965. 
+
+**Histogram depicting distribution of views for an image**
+```{r}
+hist(combined_df$count_views,
+     xlab = "views",
+     main = "Distribution of Views",
+     breaks = nrow(combined_df)/20)
+```
+
+**Box Plot for count of views**
+```{r}
+
+ggplot(combined_df) +
+  aes(x = "", y = count_views) +
+  geom_boxplot() +
+  theme_minimal()
+```
+
+The above analysis shows that most of the data is left skewed,therefore we need to drop out of bounds values. For instance, the maximum number of views an image has is 281266.<br/> 
+We have too strong outliers and in order to remove them, we used interquartile range and arrived at final data clear from outliers.
+
+```{r}
+final_data_df <- read.csv("./Final_clean_images_info.csv", header = TRUE)
+str(final_data_df)
+```
+
+```{r}
+summary(final_data_df$count_views)
+```
+
+Thus,arriving at a final data of 4017 images. Outliers influence is curtailed. However, the data is still skewed more towards images with few views.
+
+## Data Visualisation
+**Histogram for distribution of views for final image data**
+
+```{r}
+hist(final_data_df$count_views,
+     xlab = "views",
+     main = "Distribution of Views",
+     breaks = nrow(final_data_df)/10)
+```
+
+**Box plot for final image data**
+
+```{r}
+library(ggplot2)
+ggplot(final_data_df) +
+  aes(x = "", y = count_views) +
+  geom_boxplot() +
+  theme_minimal()
+```
+
+## ML Model building & Model Summarization
+We use deep learning models to build a model. The convolutional Neural Network CNN works by getting an image, designating it some weightage based on the different objects of the image, and then distinguishing them from each other.
+
+The target is to predict if the image is popular or not, hence we need to use Regression CNN to arrive at a numerical field i.e., number of views an image can get in order to be classified as popular or not.
+
+-   CNN Regression Model
+-   VGG-16 based CNN Regression Model
+-   CNN Binary Classification Model
+-   CNN Binary Classification using VGG-16 model net
+
+## **CNN Regression Model**
+We saved our CNN regression model into a h5 file and reloading it as required.
+
+```{r}
+base_model <- load_model_hdf5("new_model_06_12_1.h5")
+history <- read_rds("new_model_06_12_1.rds")
+
+```
+
+### Summary of the CNN-Regression
+```{r}
+summary(base_model)
+```
+
+### Plotting the model history
+```{r}
+plot(history)
+```
+
+```{r}
+history
+```
+
+We got a Mean Absolute Error for Validation data as 373.3. This error can be better related to popularity class based when compared against a benchmark number of views. 
+
+### Evaluation Metrics
+```{r}
+base_CNN_test_metrcis <- read.csv("./Base_CNN_Reg_test_metrics.csv", header = TRUE)
+kbl(base_CNN_test_metrcis) %>%
+  kable_paper(bootstrap_options = "striped", full_width = F)
+```
+
+Output from the model is typically number of views.<br/>
+
+Let us now define a popularity metric using number of views by defining a threshold value to classify the image as popular and non-popular i.e., if number of views are greater than 200 , the image can be categorized into popular, otherwise unpopular.
+
+Classification of popularity categories based on the Test Results above trained CNN Regression Model.
+```{r}
+#### Classification of popularity categories based on the Trained CNN Regression Model ####
+
+test_results <- read.csv("./test_results_1.csv", header = TRUE)
+class_df <- transform(test_results, Pop_class_actual = ifelse(test_results$test_ds.labels > 200, "Popular", "Unpopular"),
+                      Pop_class_pred = ifelse(test_results$pred > 200, "Popular", "Unpopular"))
+
+
+matrix_conf <- table(class_df$Pop_class_actual, class_df$Pop_class_pred)
+
+
+
+class_acc <- (matrix_conf[[1,1]]+matrix_conf[[2,2]]) / nrow(test_results)
+```
+
+ConfusionMatrix predicting number of popular images on test data.
+
+```{r}
+matrix_conf
+```
+
+This means that of the test data ; 318 images are predicted to be popular , 98 to be unpopular are predicted accurately.
+
+Accuracy
+```{r}
+class_acc
+```
+
+Accuracy is 51% . We can try to improve the performance and accuracy of the model using a pretrained model.Hence trying the model prediction using trained vgg16 model.
+
+## **VGG-16 based CNN Regression Model**
+
+```{r}
+#VGG16
+vgg_model <- load_model_hdf5("vgg_model_07_12_1.h5")
+history_vgg <- read_rds("vgg_model_07_12_1.rds")
+test <- read_rds("VGG-CNN_Reg_Test_img_gen.rds")
+```
+
+### Summary of the vgg16 model
+```{r}
+summary(vgg_model)
+```
+
+### Plotting of the model
+```{r}
+plot(history_vgg)
+```
+
+```{r}
+history_vgg
+```
+
+
+### Metric Evaluation
+```{r}
+vgg_test_metrics <- vgg_model %>%
+  evaluate(test$features, test$labels, steps = 20)
+
+vgg_test_metrics
+```
+
+
+Classification of Popularity categories based in model built with VGG-16 pre-trained net and CNN Regression layer.
+```{r}
+#### Classification of Popularity categories based model built on VGG-16 pre-trained net ####
+
+vgg_test_results <- read.csv("./vgg_test_results_1.csv", header = TRUE)
+colnames(vgg_test_results)[c(1,2,3)] <- c("vgg_image_name", "vgg_test_views_lables", "vgg_pred")
+vgg_class_df <- transform(vgg_test_results, Pop_class_actual = ifelse(vgg_test_results$vgg_test_views_lables > 200, "Popular", "Unpopular"),
+                      Pop_class_pred = ifelse(vgg_test_results$vgg_pred > 200, "Popular", "Unpopular"))
+
+
+
+vgg_matrix_conf <- table(vgg_class_df$Pop_class_actual, vgg_class_df$Pop_class_pred)
+
+
+
+vgg_class_acc <- (vgg_matrix_conf[[1,1]]+vgg_matrix_conf[[2,2]]) / nrow(vgg_test_results)
+vgg_matrix_conf
+```
+
+Prediction seems to be improved using vgg16. 287 images are predicted to be popular,157 are predicted to be unpopular.
+
+```{r}
+vgg_class_acc
+```
+
+Accuracy (55.5%) seems to be improved by 4% using vgg16 trained model . However, the popular and unpopular number of images got altered. Might indicate a better fit for the given data.
+
+## Another Perspective at Data
+We can also consider the model to be a binary classification since target is to predict if the image is popular or not. Hence we can train our model with a sigmoid activation for last layer ; and loss function as binary_crossentropy.
+
+Similar to above format, let us build our model for a binary classification
+
+## **CNN Binary Classification Model**
+
+```{r}
+binary_class_model <- load_model_hdf5("bin_class_model_07_12_1.h5")
+binary_class_history <- read_rds("bin_class_model_07_12_1.rds")
+```
+
+### Summary of CNN Binary Classification model
+
+```{r}
+summary(binary_class_model)
+```
+
+### Plotting the history 
+
+```{r}
+plot(binary_class_history)
+```
+
+```{r}
+binary_class_history
+```
+
+
+### Metrics Evaluation
+
+```{r}
+bin_class_test_metrics <- read.csv("./CNN_Class_test_metrics.csv")
+kbl(bin_class_test_metrics) %>%
+  kable_paper(bootstrap_options = "striped", full_width = F)
+```
+
+Accuracy is 57% if model is considered as a binary classification
+
+## **CNN Binary Classification using VGG-16 model net**
+
+```{r}
+bin_vgg_model <- load_model_hdf5("bin_vgg_model_07_12_1.h5")
+history_bin_vgg <- read_rds("bin_vgg_model_07_12_1.rds")
+bin_vgg_test <- read_rds("bin_VGG-class_test_img_gen.rds")
+```
+
+### Summary of the CNN Binary Classification model on top of VGG-16
+
+```{r}
+summary(bin_vgg_model)
+```
+
+### Plotting of the model
+```{r}
+plot(history_bin_vgg)
+```
+
+```{r}
+history_bin_vgg
+```
+
+
+### Metrics Evaluation
+```{r}
+bin_vgg_test_metrics <- bin_vgg_model %>%
+  evaluate(bin_vgg_test$features, bin_vgg_test$labels, steps = 20)
+
+bin_vgg_test_metrics
+```
+
+Accuracy lies around 56.5% . Not much of a difference between pretrained model and our own binary classification model.
+
+## **Inference - popularity prediction**
+
+
+1: Prediction accuracy lies in the range of 51%-57% . This means that for this set of data, the model that is being used i.e., either pretrained vgg16 or a binary classification or a regression model wouldn't make much of a difference.
+
+2: The popularity can be accurately predicted if the model can be trained on variable metrics or additional attributes which are unavailable right now while extracting data from Flickr API.
+
+3: Defined/saved models from our project can be implemented for popularity prediction of any image dataset from another APIs.
+
+4: Our work can be extended by considering the external factors that influence the popularity of media content such as real-world events. In addition, we could customize the popularity prediction to specific geographical regions and predict popular images based on cultural factors.
+
+
+## Appendix
+-   All data is provided in Google Drive Link [https://drive.google.com/drive/folders/1eN8Hf0JPbvvD90dgPSi7SCUFMK9vewbI?usp=share_link].
+-   Just place the R or RMD files in the data folder downloaded from Google Drive.<br/>
+-   We have 4 main R files in our Project.<br/>
+Flickr-DataScrape.R is used for fetching data from FlickrAPI.<br/>
+Regression_CNN.R is meant for building our main model CNN - Regression model.<br/>
+VGG16_CNN_Reg.R is meant for building second model using VGG-16 imagenet as base on which CNN Regression dense layers were added.<br/>
+Classification.R is meant for building the CNN Binary classification model and also VGG-16 imagenet based Binary classification model.
+
+
+
+
+
